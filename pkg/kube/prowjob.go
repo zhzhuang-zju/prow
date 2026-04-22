@@ -85,4 +85,11 @@ const (
 	GerritPatchset = "prow.k8s.io/gerrit-patchset"
 	// GerritReportLabel is the gerrit label prow will cast vote on, fallback to CodeReview label if unset
 	GerritReportLabel = "prow.k8s.io/gerrit-report-label"
+
+	// GitCode related labels that are used by Prow
+
+	// GitCodeInstance is the GitCode host URL (e.g. "https://gitcode.com")
+	GitCodeInstance = "prow.k8s.io/gitcode-instance"
+	// GitCodeRevision is the HEAD commit SHA of the GitCode merge request patchset
+	GitCodeRevision = "prow.k8s.io/gitcode-revision"
 )

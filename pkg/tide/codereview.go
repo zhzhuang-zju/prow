@@ -26,6 +26,7 @@ import (
 	prowapi "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
 	"sigs.k8s.io/prow/pkg/config"
 	"sigs.k8s.io/prow/pkg/git/types"
+	"sigs.k8s.io/prow/pkg/gitcode"
 	"sigs.k8s.io/prow/pkg/tide/blockers"
 
 	githubql "github.com/shurcooL/githubv4"
@@ -102,8 +103,9 @@ type CodeReviewCommon struct {
 
 	Mergeable string
 
-	GitHub *PullRequest
-	Gerrit *gerrit.ChangeInfo
+	GitHub  *PullRequest
+	Gerrit  *gerrit.ChangeInfo
+	GitCode *gitcode.MergeRequest
 }
 
 func (crc *CodeReviewCommon) logFields() logrus.Fields {
@@ -216,7 +218,47 @@ func CodeReviewCommonFromGerrit(gci *gerrit.ChangeInfo, instance string) *CodeRe
 	return crc
 }
 
-// provider is the interface implemented by each source code
+// CodeReviewCommonFromGitCode derives a CodeReviewCommon from a GitCode
+// MergeRequest struct by extracting the fields shared across providers.
+//
+// The instance parameter should be the GitCode host (e.g. "gitcode.com") and
+// is used to build the NameWithOwner field in the same "<org>/<repo>" form used
+// by the GitHub provider.
+func CodeReviewCommonFromGitCode(mr *gitcode.MergeRequest, org, repo string) *CodeReviewCommon {
+	if mr == nil {
+		return nil
+	}
+	mrCopy := *mr
+
+	mergeable := string(githubql.MergeableStateUnknown)
+	if mr.Mergeable != nil {
+		if *mr.Mergeable {
+			mergeable = string(githubql.MergeableStateMergeable)
+		} else {
+			mergeable = string(githubql.MergeableStateConflicting)
+		}
+	}
+
+	return &CodeReviewCommon{
+		NameWithOwner: org + "/" + repo,
+		Number:        mr.Number,
+		Org:           org,
+		Repo:          repo,
+		BaseRefPrefix: "refs/heads/",
+		BaseRefName:   mr.Base.Ref,
+		HeadRefName:   mr.Head.Ref,
+		HeadRefOID:    mr.Head.SHA,
+		Title:         mr.Title,
+		Body:          mr.Body,
+		AuthorLogin:   mr.User.Login,
+		Mergeable:     mergeable,
+		UpdatedAtTime: mr.UpdatedAt,
+
+		GitCode: &mrCopy,
+	}
+}
+
+
 // providers, such as GitHub and Gerrit.
 type provider interface {
 	Query() (map[string]CodeReviewCommon, error)

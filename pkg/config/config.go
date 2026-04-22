@@ -1054,6 +1054,32 @@ func (goc *GerritOrgRepoConfigs) OptOutHelpRepos() map[string]sets.Set[string] {
 	return res
 }
 
+// GitCodeOrgRepoConfigs is the list of GitCode org/repo configurations.
+type GitCodeOrgRepoConfigs []GitCodeOrgRepoConfig
+
+// GitCodeOrgRepoConfig holds the list of repositories under a single GitCode
+// organization (owner) that Prow should manage.
+type GitCodeOrgRepoConfig struct {
+	// Org is the GitCode organization or user name.
+	Org string `json:"org,omitempty"`
+	// Repos is the list of repository names under Org.
+	Repos []string `json:"repos,omitempty"`
+}
+
+// AllRepos returns a flat map of org -> set-of-repos derived from the
+// GitCodeOrgRepoConfigs slice, which is the shape consumed by the Tide
+// GitCodeProvider when iterating over configured repositories.
+func (gc *GitCodeOrgRepoConfigs) AllRepos() map[string][]string {
+	if gc == nil {
+		return nil
+	}
+	res := make(map[string][]string)
+	for _, orgConfig := range *gc {
+		res[orgConfig.Org] = append(res[orgConfig.Org], orgConfig.Repos...)
+	}
+	return res
+}
+
 // Horologium is config for the Horologium.
 type Horologium struct {
 	// TickInterval is the interval in which we check if new jobs need to be

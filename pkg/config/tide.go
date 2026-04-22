@@ -209,7 +209,8 @@ type TidePriority struct {
 
 // Tide is config for the tide pool.
 type Tide struct {
-	Gerrit *TideGerritConfig `json:"gerrit,omitempty"`
+	Gerrit  *TideGerritConfig  `json:"gerrit,omitempty"`
+	GitCode *TideGitCodeConfig `json:"gitcode,omitempty"`
 	// SyncPeriod specifies how often Tide will sync jobs with GitHub. Defaults to 1m.
 	SyncPeriod *metav1.Duration `json:"sync_period,omitempty"`
 	// MaxGoroutines is the maximum number of goroutines spawned inside the
@@ -320,6 +321,18 @@ type TideGerritConfig struct {
 	// RateLimit defines how many changes to query per gerrit API call
 	// default is 5.
 	RateLimit int `json:"ratelimit,omitempty"`
+}
+
+// TideGitCodeConfig contains all GitCode-related Tide configuration.
+type TideGitCodeConfig struct {
+	// Queries is the list of org/repo configurations that Tide should watch.
+	Queries GitCodeOrgRepoConfigs `json:"queries"`
+	// Endpoint is the base URL of the GitCode API.
+	// Defaults to https://gitcode.com/api/v5 when not set.
+	Endpoint string `json:"endpoint,omitempty"`
+	// TokenPath is the path to a file containing the GitCode personal access
+	// token used for API authentication.
+	TokenPath string `json:"token_path,omitempty"`
 }
 
 func (t *Tide) mergeFrom(additional *Tide) error {
