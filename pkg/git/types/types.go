@@ -26,4 +26,9 @@ const (
 	MergeRebase      PullRequestMergeType = "rebase"
 	MergeSquash      PullRequestMergeType = "squash"
 	MergeIfNecessary PullRequestMergeType = "ifNecessary"
+	// MergeGitPush performs a fast-forward push of the PR's HEAD commit directly
+	// to the base branch via `git push`, without invoking any platform merge API.
+	// The PR branch must be up-to-date with the base branch (fast-forward only).
+	// This preserves the original commit SHAs exactly as they appear in the PR.
+	MergeGitPush PullRequestMergeType = "gitPush"
 )

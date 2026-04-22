@@ -76,6 +76,15 @@ type Interactor interface {
 	MergeCommitsExistBetween(target, head string) (bool, error)
 	// ShowRef returns the commit for a commitlike. Unlike rev-parse it does not require a checkout.
 	ShowRef(commitlike string) (string, error)
+	// PushBranchToURL pushes the local branch to the given remote URL with an optional force flag.
+	// The remote URL must already contain any credentials required for authentication.
+	// Use force=true to force-push (overwrite the remote branch regardless of history).
+	PushBranchToURL(remoteURL, branch string, force bool) error
+	// PushSHAToBranch pushes the given commit SHA to refs/heads/<dstBranch> on remoteURL.
+	// This is a plain (non-force) push: the remote will reject the push if it is not a
+	// fast-forward of the current remote branch tip.
+	// The remoteURL must already contain any credentials required for authentication.
+	PushSHAToBranch(remoteURL, sha, dstBranch string) error
 }
 
 // cacher knows how to cache and update repositories in a central cache
@@ -308,6 +317,10 @@ func (i *interactor) MergeWithStrategy(commitlike, mergeStrategy string, opts ..
 		return i.mergeRebase(commitlike)
 	case "ifNecessary":
 		return i.mergeIfNecessary(commitlike, opts...)
+	case "gitPush":
+		// For git-push merges, local compatibility check uses fast-forward-only merge.
+		// Only PRs whose branch is already rebased on the current HEAD will be selected.
+		return i.mergeFfOnly(commitlike)
 	default:
 		return false, fmt.Errorf("merge strategy %q is not supported", mergeStrategy)
 	}
@@ -343,6 +356,24 @@ func (i *interactor) mergeMerge(commitlike string, opts ...MergeOpt) (bool, erro
 func (i *interactor) mergeIfNecessary(commitlike string, opts ...MergeOpt) (bool, error) {
 	args := []string{"merge", "--ff", "--no-stat"}
 	return i.mergeHelper(args, commitlike, opts...)
+}
+
+// mergeFfOnly attempts a fast-forward-only merge of commitlike into the current HEAD.
+// Returns (true, nil) if the fast-forward succeeded, (false, nil) if the branch is not
+// a descendant of HEAD (i.e., would require a merge commit), or (false, err) on any
+// unexpected git failure.
+func (i *interactor) mergeFfOnly(commitlike string) (bool, error) {
+	out, err := i.executor.Run("merge", "--ff-only", "--no-stat", commitlike)
+	if err == nil {
+		return true, nil
+	}
+	i.logger.WithError(err).Infof("Fast-forward-only merge of %q failed (not FF): %s", commitlike, string(out))
+	// Abort any partial merge state (ff-only rarely leaves one, but be safe).
+	if _, abortErr := i.executor.Run("merge", "--abort"); abortErr != nil {
+		// --abort fails when there is nothing to abort; ignore that.
+		i.logger.WithError(abortErr).Debug("merge --abort (ff-only cleanup, likely a no-op)")
+	}
+	return false, nil
 }
 
 func (i *interactor) squashMerge(commitlike string) (bool, error) {
@@ -601,4 +632,38 @@ func (i *interactor) ShowRef(commitlike string) (string, error) {
 		return "", fmt.Errorf("failed to get commit sha for commitlike %s: %w", commitlike, err)
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// PushBranchToURL pushes the local branch to remoteURL:branch.
+//
+// This performs a plain `git push` (or `git push --force` when force is true)
+// which preserves all commit SHAs — no merge commits are created on the
+// remote side. The caller is responsible for embedding authentication
+// credentials in remoteURL (e.g. "https://token@gitcode.com/org/repo.git").
+func (i *interactor) PushBranchToURL(remoteURL, branch string, force bool) error {
+	refspec := fmt.Sprintf("refs/heads/%s:refs/heads/%s", branch, branch)
+	args := []string{"push"}
+	if force {
+		args = append(args, "--force")
+	}
+	args = append(args, remoteURL, refspec)
+	i.logger.Infof("Pushing branch %q to %q (force=%v)", branch, remoteURL, force)
+	if out, err := i.executor.Run(args...); err != nil {
+		return fmt.Errorf("error pushing branch %q to %q: %w %v", branch, remoteURL, err, string(out))
+	}
+	return nil
+}
+
+// PushSHAToBranch pushes the given commit SHA to refs/heads/<dstBranch> on remoteURL.
+//
+// This is a plain (non-force) push so the remote will reject it if the current tip of
+// dstBranch is not an ancestor of sha (i.e., it is not a fast-forward).
+// The caller is responsible for embedding authentication credentials in remoteURL.
+func (i *interactor) PushSHAToBranch(remoteURL, sha, dstBranch string) error {
+	refspec := fmt.Sprintf("%s:refs/heads/%s", sha, dstBranch)
+	i.logger.Infof("Pushing SHA %q to branch %q on %q", sha, dstBranch, remoteURL)
+	if out, err := i.executor.Run("push", remoteURL, refspec); err != nil {
+		return fmt.Errorf("error pushing SHA %q to branch %q on %q: %w %v", sha, dstBranch, remoteURL, err, string(out))
+	}
+	return nil
 }

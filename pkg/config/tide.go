@@ -313,6 +313,45 @@ type TideGitHubConfig struct {
 	// creates. The default is to only mention the one to which we are closest (Calculated
 	// by total number of requirements - fulfilled number of requirements).
 	DisplayAllQueriesInStatus bool `json:"display_all_tide_queries_in_status,omitempty"`
+
+	// RepoMirrors configures one or more git mirrors that Tide will push to via
+	// `git push` after a PR is successfully merged. Because commits are pushed
+	// directly (no merge commit is created), the commit SHAs on the mirror are
+	// identical to those on GitHub.
+	RepoMirrors []TideRepoMirror `json:"repo_mirrors,omitempty"`
+}
+
+// TideRepoMirror describes a single mirror target for post-merge branch sync.
+//
+// After Tide merges a PR in the source org/repo on GitHub it will:
+//  1. Clone (or reuse a cached copy of) the source repo.
+//  2. Run `git push [--force] <remote-url> refs/heads/<branch>:refs/heads/<branch>`.
+//
+// Because this is a plain push the commit SHAs on the mirror are bit-for-bit
+// identical to those on GitHub; no extra merge commits are created.
+type TideRepoMirror struct {
+	// Org is the GitHub organization that owns the source repository.
+	Org string `json:"org"`
+	// Repo is the source repository name on GitHub.
+	Repo string `json:"repo"`
+
+	// RemoteURL is the git remote URL of the mirror.
+	// Include credentials inline when using HTTPS, e.g.
+	//   https://<token>@gitcode.com/my-org/my-repo.git
+	// For token-file based auth, leave RemoteURL credential-free and set
+	// TokenPath; the token will be injected at sync time.
+	RemoteURL string `json:"remote_url"`
+
+	// TokenPath is an optional path to a file containing a personal access
+	// token. When set, the token is injected into RemoteURL before pushing
+	// (the URL is expected to contain a placeholder "%s" for the token, or
+	// the token is prepended as "https://<token>@..." automatically).
+	TokenPath string `json:"token_path,omitempty"`
+
+	// Force enables `git push --force` to the mirror.
+	// Use this when the mirror may have diverged (e.g. after a history rewrite).
+	// Defaults to false.
+	Force bool `json:"force,omitempty"`
 }
 
 // TideGerritConfig contains all Gerrit related configurations for tide.
