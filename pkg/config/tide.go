@@ -211,6 +211,11 @@ type TidePriority struct {
 type Tide struct {
 	Gerrit  *TideGerritConfig  `json:"gerrit,omitempty"`
 	GitCode *TideGitCodeConfig `json:"gitcode,omitempty"`
+	// Pair enables cross-platform GitHub↔GitCode merge synchronisation.
+	// When set, Tide uses PairProvider instead of the individual GitHub or
+	// GitCode providers.  Both GitCode and the standard GitHub query config
+	// must also be populated.
+	Pair *TidePairConfig `json:"pair,omitempty"`
 	// SyncPeriod specifies how often Tide will sync jobs with GitHub. Defaults to 1m.
 	SyncPeriod *metav1.Duration `json:"sync_period,omitempty"`
 	// MaxGoroutines is the maximum number of goroutines spawned inside the
@@ -372,6 +377,55 @@ type TideGitCodeConfig struct {
 	// TokenPath is the path to a file containing the GitCode personal access
 	// token used for API authentication.
 	TokenPath string `json:"token_path,omitempty"`
+}
+
+// TidePairConfig enables the cross-platform GitHub↔GitCode PairProvider.
+//
+// When this block is present in the Tide config, Tide instantiates a
+// PairProvider that:
+//   1. Queries PRs from both GitHub (via the standard Tide queries) and GitCode
+//      (via the GitCode config).
+//   2. Before merging, verifies that both platform's base branches are at the
+//      same commit SHA.
+//   3. Merges by pushing commits directly (git push) to GitHub first, then to
+//      GitCode — preserving identical commit SHAs on both remotes.
+//
+// Both the standard GitHub Tide query config and the gitcode config block must
+// also be populated when pair is enabled.
+type TidePairConfig struct {
+	// GitHubTokenPath is the path to a file containing the GitHub personal
+	// access token (or app token) used to authenticate git push operations to
+	// GitHub.  This is separate from the token used by the GitHub API client.
+	GitHubTokenPath string `json:"github_token_path,omitempty"`
+
+	// GitCodeTokenPath is the path to a file containing the GitCode personal
+	// access token used to authenticate git push and fetch operations.
+	// Falls back to the gitcode.token_path when unset.
+	GitCodeTokenPath string `json:"gitcode_token_path,omitempty"`
+
+	// GitHubHost is the GitHub hostname used in remote push URLs.
+	// Defaults to "github.com".
+	GitHubHost string `json:"github_host,omitempty"`
+
+	// GitCodeHost is the GitCode hostname used in remote push/fetch URLs.
+	// Defaults to "gitcode.com".
+	GitCodeHost string `json:"gitcode_host,omitempty"`
+}
+
+// GitHubHostOrDefault returns the GitHub host, defaulting to "github.com".
+func (c *TidePairConfig) GitHubHostOrDefault() string {
+	if c.GitHubHost != "" {
+		return c.GitHubHost
+	}
+	return "github.com"
+}
+
+// GitCodeHostOrDefault returns the GitCode host, defaulting to "gitcode.com".
+func (c *TidePairConfig) GitCodeHostOrDefault() string {
+	if c.GitCodeHost != "" {
+		return c.GitCodeHost
+	}
+	return "gitcode.com"
 }
 
 func (t *Tide) mergeFrom(additional *Tide) error {

@@ -58,6 +58,9 @@ const (
 	platformGitCode = "gitcode"
 )
 
+// Enforce interface implementation at compile time.
+var _ provider = (*PairProvider)(nil)
+
 // PairProvider implements the provider interface for a mirrored
 // GitHub ↔ GitCode setup.  first must be the GitHub provider; second must be
 // the GitCode provider.

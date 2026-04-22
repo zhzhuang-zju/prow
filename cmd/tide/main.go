@@ -43,8 +43,10 @@ import (
 )
 
 const (
-	githubProviderName = "github"
-	gerritProviderName = "gerrit"
+	githubProviderName  = "github"
+	gerritProviderName  = "gerrit"
+	gitcodeProviderName = "gitcode"
+	pairProviderName    = "pair"
 )
 
 type options struct {
@@ -92,8 +94,8 @@ func (o *options) Validate() error {
 			return err
 		}
 	}
-	if o.providerName != "" && !sets.NewString(githubProviderName, gerritProviderName).Has(o.providerName) {
-		return errors.New("--provider should be github or gerrit")
+	if o.providerName != "" && !sets.NewString(githubProviderName, gerritProviderName, gitcodeProviderName, pairProviderName).Has(o.providerName) {
+		return errors.New("--provider should be github, gerrit, gitcode, or pair")
 	}
 	var providerFlagGroup flagutil.OptionGroup = &o.github
 	if o.providerName == gerritProviderName {
@@ -175,6 +177,9 @@ func main() {
 	if cfg().Tide.Gerrit != nil && cfg().Tide.Queries.QueryMap() != nil && o.providerName == "" {
 		logrus.Fatal("Both github and gerrit are configured in tide config but provider is not set.")
 	}
+	if cfg().Tide.GitCode != nil && cfg().Tide.Queries.QueryMap() != nil && cfg().Tide.Pair == nil && o.providerName == "" {
+		logrus.Fatal("Both github and gitcode are configured in tide config; set --provider=pair to enable cross-platform sync, or --provider=github/gitcode to use a single platform.")
+	}
 
 	var c *tide.Controller
 	gitClient, err := o.github.GitClientFactory(o.cookiefilePath, &o.config.InRepoConfigCacheDirBase, o.dryRun, false)
@@ -237,6 +242,49 @@ func main() {
 		if err != nil {
 			logrus.WithError(err).Fatal("Error creating Tide controller.")
 		}
+	case gitcodeProviderName:
+		c, err = tide.NewGitCodeController(
+			mgr,
+			configAgent,
+			gitClient,
+			o.maxRecordsPerPool,
+			opener,
+			o.historyURI,
+			o.statusURI,
+			nil,
+			o.config,
+		)
+		if err != nil {
+			logrus.WithError(err).Fatal("Error creating Tide controller.")
+		}
+	case pairProviderName:
+		githubSync, err := o.github.GitHubClientWithLogFields(o.dryRun, logrus.Fields{"controller": "sync"})
+		if err != nil {
+			logrus.WithError(err).Fatal("Error getting GitHub client for sync.")
+		}
+		githubStatus, err := o.github.GitHubClientWithLogFields(o.dryRun, logrus.Fields{"controller": "status-update"})
+		if err != nil {
+			logrus.WithError(err).Fatal("Error getting GitHub client for status.")
+		}
+		githubSync.Throttle(o.syncThrottle, 3*tokensPerIteration(o.syncThrottle, cfg().Tide.SyncPeriod.Duration))
+		githubStatus.Throttle(o.statusThrottle, o.statusThrottle/2)
+		c, err = tide.NewPairController(
+			githubSync,
+			githubStatus,
+			mgr,
+			configAgent,
+			gitClient,
+			o.maxRecordsPerPool,
+			opener,
+			o.historyURI,
+			o.statusURI,
+			nil,
+			o.github.AppPrivateKeyPath != "",
+			o.config,
+		)
+		if err != nil {
+			logrus.WithError(err).Fatal("Error creating Tide pair controller.")
+		}
 	default:
 		logrus.Fatalf("Unsupported provider type '%s', this should not happen", provider)
 	}
@@ -296,10 +344,17 @@ func sync(c *tide.Controller) {
 
 func provider(wantProvider string, tideConfig config.Tide) string {
 	if wantProvider != "" {
-		if !sets.NewString(githubProviderName, gerritProviderName).Has(wantProvider) {
+		if !sets.NewString(githubProviderName, gerritProviderName, gitcodeProviderName, pairProviderName).Has(wantProvider) {
 			return ""
 		}
 		return wantProvider
+	}
+	// Auto-detect based on config.
+	if tideConfig.Pair != nil {
+		return pairProviderName
+	}
+	if tideConfig.GitCode != nil && len(tideConfig.GitCode.Queries) > 0 {
+		return gitcodeProviderName
 	}
 	// Default to GitHub if GitHub queries are configured
 	if len([]config.TideQuery(tideConfig.Queries)) > 0 {

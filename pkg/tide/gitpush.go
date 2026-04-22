@@ -28,6 +28,9 @@ import (
 	gitTypes "sigs.k8s.io/prow/pkg/git/types"
 )
 
+// Enforce interface implementation at compile time.
+var _ provider = (*GitPushProvider)(nil)
+
 // RemoteURLFunc returns the authenticated remote URL for a given (org, repo)
 // pair. The URL must embed any credentials required to push (e.g. a personal
 // access token in the userinfo component: "https://token@host/org/repo.git").
